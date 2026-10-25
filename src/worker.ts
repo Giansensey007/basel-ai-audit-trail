@@ -4,6 +4,7 @@ import rulesFile from "../tool/rules.json";
 import schemaFile from "../tool/schema.json";
 import templatesFile from "../tool/templates.json";
 import { canSeal, linkEvents } from "./lib/chain";
+import { zurich } from "./lib/clock";
 import { agreementCount, derive, pruefvermerk, sameIdSet } from "./lib/derive";
 import { hashEvent, taggedHash, utf8 } from "./lib/hash";
 import { jcs } from "./lib/jcs";
@@ -190,7 +191,7 @@ async function decide(request: Request, env: Env, id: string): Promise<Response>
   const derived = (JSON.parse(derivationEvent.canonical_json) as { payload: { recommendation: "book" | "hold" } }).payload;
   const decisionAt = new Date().toISOString();
   const sealAt = new Date(Date.now() + 1).toISOString();
-  const text = pruefvermerk({ templates, recommendation: derived.recommendation, decision, name, time: decisionAt });
+  const text = pruefvermerk({ templates, recommendation: derived.recommendation, decision, name, time: zurich(decisionAt) });
   const decisionPayload = { decision, reviewerClaim: name, comment };
   const sealPayload = {
     pruefvermerk: text,

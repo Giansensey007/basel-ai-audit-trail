@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { zurich } from "./clock";
 import { canSeal, linkEvents, verifyChain } from "./chain";
 import { taggedHash, utf8 } from "./hash";
 import { jcs } from "./jcs";
@@ -19,6 +20,12 @@ describe("chain", () => {
 
   it("canonicalizes objects with sorted keys", () => {
     expect(jcs({ b: 1, a: "x" })).toBe('{"a":"x","b":1}');
+  });
+
+  it("writes the seal time as a Zurich clock, not a raw timestamp", () => {
+    const shown = zurich("2026-10-25T10:15:00.000Z");
+    expect(shown).toContain("2026");
+    expect(shown).not.toContain("T");
   });
 
   it("tags the rule file separately from a document", async () => {

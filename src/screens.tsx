@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import dossiersFile from "../tool/dossiers.json";
 import templatesFile from "../tool/templates.json";
 import { linkEvents, verifyChain } from "./lib/chain";
+import { zurich } from "./lib/clock";
 import { downloads } from "./lib/docs";
 import type { DerivedField, Derivation, Dossier, DossiersFile, TemplatesFile } from "./lib/types";
 
@@ -23,6 +24,9 @@ function dossierById(id: string): Dossier | undefined {
   return dossiers.dossiers.find((item) => item.id === id);
 }
 
+const eventName = (type: string) =>
+  ({ intake: "Eingang", extraction: "Extraktion", derivation: "Unsicherheit", decision: "Human Review", seal: "Integrität" })[type] ?? type;
+
 function readPayload(event: ApiEvent): Record<string, unknown> {
   return (JSON.parse(event.canonical) as { payload: Record<string, unknown> }).payload;
 }
@@ -34,12 +38,16 @@ export function Shell({ children }: { children: ReactNode }) {
         <div className="topbar-inner">
           <Link className="brand" to="/">Basel AI Audit Trail</Link>
           <nav className="top-links">
-            <Link to="/v/bruch">Gebrochene Kette</Link>
+            <Link to="/">Dossiers</Link>
           </nav>
         </div>
       </header>
       <main className="wrap">{children}</main>
-      <footer className="footer">Pillar 5 GmbH, Basel. Technischer Partner Ritzi DeFi. Synthetische Daten. Kein gefördertes Ergebnis. Keine privaten Schlüssel auf dieser Seite.</footer>
+      <footer className="footer">
+        Pillar 5 GmbH, Basel. Technischer Partner Ritzi DeFi. Synthetische Daten. Kein gefördertes Ergebnis. Keine privaten Schlüssel auf dieser Seite.
+        {" "}
+        <Link to="/v/bruch">Beispiel einer gebrochenen Kette</Link>
+      </footer>
     </>
   );
 }
@@ -51,7 +59,7 @@ export function Chooser() {
       <div className="gold-rule" />
       <p className="lede">Synthetische Lieferantenprüfung, keine echten Belege.</p>
       <div className="chooser-grid">
-        {dossiers.dossiers.map((dossier) => (
+        {[...dossiers.dossiers].sort((a, b) => Number(b.call) - Number(a.call)).map((dossier) => (
           <Link key={dossier.id} to={`/fall/${dossier.id}`} className={dossier.call ? "dossier-card is-call" : "dossier-card"}>
             <span className={dossier.call ? "flag" : "flag quiet"}>{dossier.call ? "Für das Gespräch" : "Kontrollfall"}</span>
             <strong>{dossier.title}</strong>
@@ -259,7 +267,7 @@ export function Workspace() {
       </ol>
       <div className="workspace">
         <section>
-          <p className="read-note">Das Werkzeug hat diesen Text hier gelesen. Gewählter Abschnitt: {selected || "noch keiner"}.</p>
+          <p className="read-note">Das Werkzeug hat diesen Text hier gelesen. Abschnitt {selected || "noch keiner"}.</p>
           {dossier.documents.map((doc) => (
             <article key={doc.id} className="doc">
               <h2>{doc.title}</h2>
@@ -329,7 +337,7 @@ export function Workspace() {
       </section>
       <ol className="tape">
         {data.events.map((event) => (
-          <li key={event.seq}>{event.type} | {event.createdAt} | {event.hash.slice(0, 12)}{event.type === "extraction" ? ` | ${model}, rules.json ${rulesVersion}` : ""}</li>
+          <li key={event.seq}>{eventName(event.type)} | {zurich(event.createdAt)} | {event.hash.slice(0, 12)}{event.type === "extraction" ? ` | ${model}, rules.json ${rulesVersion}` : ""}</li>
         ))}
       </ol>
       <section className="downloads">
