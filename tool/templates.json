@@ -1,0 +1,13 @@
+{
+  "version": "2026-10-25",
+  "draftIntro": "Entwurf des Werkzeugs.",
+  "bookLine": "Empfehlung: buchen. Die acht Felder sind belegt und die Mehrwertsteuer stimmt.",
+  "holdLine": "Empfehlung: zurückstellen.",
+  "reasonConflict": "{label} widerspricht sich ({ids}).",
+  "reasonMissing": "{label} fehlt.",
+  "reasonVat": "Netto, MwSt-Satz und Brutto stimmen nicht überein. Die Beträge bleiben leer.",
+  "finalBook": "Prüfvermerk. {name} hat am {time} freigegeben. Buchung laut Werkzeug.",
+  "finalHoldApproved": "Prüfvermerk. {name} hat am {time} die Zurückstellung freigegeben. Keine Buchung.",
+  "finalReject": "Prüfvermerk. Zurückstellung durch {name} am {time}. Keine Buchungsempfehlung.",
+  "claimNote": "Der Name ist eine ungeprüfte Angabe. Die Kette belegt den Zeitpunkt der Aufzeichnung, nicht wer ihn eingegeben hat."
+}

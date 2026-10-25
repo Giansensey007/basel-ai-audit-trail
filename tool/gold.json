@@ -1,0 +1,25 @@
+{
+  "version": "2026-10-25",
+  "readings": {
+    "klar": {
+      "supplier": ["BK-02", "LK-02", "RK-02"],
+      "invoiceNumber": ["RK-03"],
+      "date": ["RK-05"],
+      "net": ["BK-06", "RK-07"],
+      "vatRate": ["BK-07", "RK-08"],
+      "gross": ["BK-08", "RK-09"],
+      "orderReference": ["BK-03", "LK-03", "RK-04"],
+      "quantity": ["BK-05", "LK-04", "RK-06"]
+    },
+    "abweichung": {
+      "supplier": ["BA-02", "LA-02", "RA-02"],
+      "invoiceNumber": ["RA-03"],
+      "date": ["RA-05"],
+      "net": ["BA-06", "RA-07"],
+      "vatRate": ["BA-07", "RA-08"],
+      "gross": ["BA-08", "RA-09"],
+      "orderReference": ["BA-03", "LA-03", "RA-04"],
+      "quantity": ["BA-05", "LA-04", "RA-06"]
+    }
+  }
+}

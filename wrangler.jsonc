@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "basel-ai-audit-trail",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-10-25",
+  "vars": {
+    "OPENROUTER_MODEL": "openai/gpt-6.1-sol"
+  },
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "basel-audit-trail",
+      "database_id": "5bb1c98a-d3be-46ac-82b8-3264a24efd09"
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "version": "2026-10-25",
+  "vatToleranceRappen": 1,
+  "holdIfAnyFieldEmpty": true,
+  "holdIfVatMismatch": true,
+  "holdIfCostCentreMissing": true,
+  "costCentre": {
+    "token": "Kostenstelle:",
+    "missingReason": "Kostenstelle fehlt."
+  },
+  "types": {
+    "text": "^(.*\\S)\\s*$",
+    "date": "^(\\d{2}\\.\\d{2}\\.\\d{4})$",
+    "money": "^([0-9][0-9'.]*)$",
+    "percent": "^([0-9]+(?:\\.[0-9]+)?)\\s*%$",
+    "quantity": "^(\\d+)$"
+  }
+}

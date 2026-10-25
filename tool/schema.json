@@ -1,0 +1,61 @@
+{
+  "version": "2026-10-25",
+  "fields": [
+    {
+      "id": "supplier",
+      "label": "Lieferant",
+      "type": "text",
+      "labelToken": "Lieferant:",
+      "documents": ["bestellung", "lieferschein", "rechnung"]
+    },
+    {
+      "id": "invoiceNumber",
+      "label": "Rechnungsnummer",
+      "type": "text",
+      "labelToken": "Rechnung Nr.",
+      "documents": ["rechnung"]
+    },
+    {
+      "id": "date",
+      "label": "Datum",
+      "type": "date",
+      "labelToken": "Datum:",
+      "documents": ["rechnung"]
+    },
+    {
+      "id": "net",
+      "label": "Netto",
+      "type": "money",
+      "labelToken": "Netto:",
+      "documents": ["bestellung", "rechnung"]
+    },
+    {
+      "id": "vatRate",
+      "label": "MwSt-Satz",
+      "type": "percent",
+      "labelToken": "MwSt:",
+      "documents": ["bestellung", "rechnung"]
+    },
+    {
+      "id": "gross",
+      "label": "Brutto",
+      "type": "money",
+      "labelToken": "Brutto:",
+      "documents": ["bestellung", "rechnung"]
+    },
+    {
+      "id": "orderReference",
+      "label": "Bestellreferenz",
+      "type": "text",
+      "labelToken": "Bestellreferenz:",
+      "documents": ["bestellung", "lieferschein", "rechnung"]
+    },
+    {
+      "id": "quantity",
+      "label": "Menge",
+      "type": "quantity",
+      "labelToken": "Menge:",
+      "documents": ["bestellung", "lieferschein", "rechnung"]
+    }
+  ]
+}

@@ -1,0 +1,102 @@
+{
+  "version": "2026-10-25",
+  "dossiers": [
+    {
+      "id": "klar",
+      "title": "Fall Klar",
+      "call": false,
+      "blurb": "Bestellung, Lieferschein und Rechnung stimmen überein.",
+      "documents": [
+        {
+          "id": "bestellung",
+          "title": "Bestellung",
+          "segments": [
+            { "id": "BK-01", "text": "SYNTHETISCH. Keine echte Firma." },
+            { "id": "BK-02", "text": "Lieferant: Nordlicht Beispiel AG" },
+            { "id": "BK-03", "text": "Bestellreferenz: BE-4401" },
+            { "id": "BK-04", "text": "Datum: 02.03.2026" },
+            { "id": "BK-05", "text": "Menge: 10" },
+            { "id": "BK-06", "text": "Netto: 1'000.00" },
+            { "id": "BK-07", "text": "MwSt: 8.1%" },
+            { "id": "BK-08", "text": "Brutto: 1'081.00" },
+            { "id": "BK-09", "text": "Kostenstelle: Verwaltung" }
+          ]
+        },
+        {
+          "id": "lieferschein",
+          "title": "Lieferschein",
+          "segments": [
+            { "id": "LK-01", "text": "SYNTHETISCH. Keine echte Firma." },
+            { "id": "LK-02", "text": "Lieferant: Nordlicht Beispiel AG" },
+            { "id": "LK-03", "text": "Bestellreferenz: BE-4401" },
+            { "id": "LK-04", "text": "Menge: 10" },
+            { "id": "LK-05", "text": "Kostenstelle: Verwaltung" }
+          ]
+        },
+        {
+          "id": "rechnung",
+          "title": "Rechnung",
+          "segments": [
+            { "id": "RK-01", "text": "SYNTHETISCH. Keine echte Firma." },
+            { "id": "RK-02", "text": "Lieferant: Nordlicht Beispiel AG" },
+            { "id": "RK-03", "text": "Rechnung Nr. RE-2026-014" },
+            { "id": "RK-04", "text": "Bestellreferenz: BE-4401" },
+            { "id": "RK-05", "text": "Datum: 12.03.2026" },
+            { "id": "RK-06", "text": "Menge: 10" },
+            { "id": "RK-07", "text": "Netto: 1'000.00" },
+            { "id": "RK-08", "text": "MwSt: 8.1%" },
+            { "id": "RK-09", "text": "Brutto: 1'081.00" },
+            { "id": "RK-10", "text": "Kostenstelle: Verwaltung" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "abweichung",
+      "title": "Fall Abweichung",
+      "call": true,
+      "blurb": "Die Menge widerspricht sich, die Kostenstelle fehlt, der MwSt-Satz widerspricht sich.",
+      "documents": [
+        {
+          "id": "bestellung",
+          "title": "Bestellung",
+          "segments": [
+            { "id": "BA-01", "text": "SYNTHETISCH. Keine echte Firma." },
+            { "id": "BA-02", "text": "Lieferant: Nordlicht Beispiel AG" },
+            { "id": "BA-03", "text": "Bestellreferenz: BE-4402" },
+            { "id": "BA-04", "text": "Datum: 02.03.2026" },
+            { "id": "BA-05", "text": "Menge: 10" },
+            { "id": "BA-06", "text": "Netto: 1'000.00" },
+            { "id": "BA-07", "text": "MwSt: 8.1%" },
+            { "id": "BA-08", "text": "Brutto: 1'081.00" }
+          ]
+        },
+        {
+          "id": "lieferschein",
+          "title": "Lieferschein",
+          "segments": [
+            { "id": "LA-01", "text": "SYNTHETISCH. Keine echte Firma." },
+            { "id": "LA-02", "text": "Lieferant: Nordlicht Beispiel AG" },
+            { "id": "LA-03", "text": "Bestellreferenz: BE-4402" },
+            { "id": "LA-04", "text": "Menge: 10" }
+          ]
+        },
+        {
+          "id": "rechnung",
+          "title": "Rechnung",
+          "segments": [
+            { "id": "RA-01", "text": "SYNTHETISCH. Keine echte Firma." },
+            { "id": "RA-02", "text": "Lieferant: Nordlicht Beispiel AG" },
+            { "id": "RA-03", "text": "Rechnung Nr. RE-2026-015" },
+            { "id": "RA-04", "text": "Bestellreferenz: BE-4402" },
+            { "id": "RA-05", "text": "Datum: 18.03.2026" },
+            { "id": "RA-06", "text": "Menge: 12" },
+            { "id": "RA-07", "text": "Netto: 1'000.00" },
+            { "id": "RA-08", "text": "MwSt: 2.6%" },
+            { "id": "RA-09", "text": "Brutto: 1'081.00" }
+          ]
+        }
+      ]
+    }
+  ]
+}
