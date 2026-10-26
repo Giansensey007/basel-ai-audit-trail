@@ -20,6 +20,20 @@ type Payload = {
   error?: string;
 };
 
+function sittingTime(started: string | undefined, ended: string | undefined, now: number): string {
+  if (!started) return "noch keine Zeit";
+  const open = Math.max(0, Math.round((now - Date.parse(started)) / 1000));
+  if (!ended) return open > 30 * 60 ? "Sitzung liegt länger zurück. Neue Lesung starten." : `${open} Sekunden, läuft`;
+  const span = Math.max(0, Math.round((Date.parse(ended) - Date.parse(started)) / 1000));
+  if (span > 30 * 60) return "früher entschieden, nicht als Sitzungszeit gewertet";
+  return `${span} Sekunden bis zur Entscheidung. Kein Vergleichswert.`;
+}
+
+function freshReading(dossierId: string, again: () => void) {
+  for (let index = 0; index < 30; index += 1) sessionStorage.removeItem(`basel-key-${dossierId}-${index}`);
+  again();
+}
+
 function dossierById(id: string): Dossier | undefined {
   return dossiers.dossiers.find((item) => item.id === id);
 }
@@ -209,9 +223,7 @@ export function Workspace() {
   if (sealEvent) done.add("Integrität");
   const active = steps.find((step) => !done.has(step)) ?? "Evaluation";
   const covered = derivation.fields.filter((field) => field.status === "filled" || (field.status === "conflict" && field.segmentIds.length >= 2)).length;
-  const started = Date.parse(derivationEvent!.createdAt);
-  const ended = decisionEvent ? Date.parse(decisionEvent.createdAt) : now;
-  const seconds = Math.max(0, Math.round((ended - started) / 1000));
+  const efficiency = sittingTime(derivationEvent?.createdAt, decisionEvent?.createdAt, now);
   const model = extractionEvent ? String(readPayload(extractionEvent).model ?? "") : "";
   const rulesVersion = "2026-10-25";
   const sealText = sealEvent ? String(readPayload(sealEvent).pruefvermerk ?? "") : "";
@@ -323,7 +335,7 @@ export function Workspace() {
       <section className="kpi" aria-label="KPI-Hypothesen, vor dem Pilot">
         <h2>KPI-Hypothesen, vor dem Pilot</h2>
         <div className="kpi-grid">
-          <div className="kpi-row">Effizienz: {seconds} Sekunden. Kein Vergleichswert.</div>
+          <div className="kpi-row">Effizienz: {efficiency}</div>
           <div className="kpi-row">Nachvollziehbarkeit: {covered} von 8 Feldern mit geprüftem Abschnitt.</div>
           <div className="kpi-row">Menschliche Kontrolle: {decisionEvent ? "ja" : "nein"}</div>
           <div className="kpi-row">Auditierbarkeit: {data.events.length} von 5 Ereignissen, acht Schritte in der Leiste.</div>
@@ -333,6 +345,7 @@ export function Workspace() {
         </div>
         <div className="actions" style={{ marginTop: 12 }}>
           <button className="btn ghost" type="button" disabled={saving} onClick={() => void again()}>Erneut lesen</button>
+          <button className="btn ghost" type="button" disabled={saving} onClick={() => freshReading(dossier.id, () => setAttempt((value) => value + 1))}>Neue Lesung</button>
         </div>
       </section>
       <ol className="tape">
