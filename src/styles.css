@@ -195,6 +195,7 @@ h1 {
 .footer a { display: inline-flex; align-items: center; min-height: 44px; }
 .downloads a { display: block; }
 .tape { list-style: none; padding: 0; margin: 0; }
+.wrap p a, .claim a { display: inline-flex; align-items: center; min-height: 44px; }
 .vermerk a, .draft a { display: inline-flex; align-items: center; min-height: 44px; }
 .ok { color: var(--ok); font-weight: 600; }
 .bad { color: var(--hold); font-weight: 600; }

@@ -193,8 +193,7 @@ export function Loader({ label, hint }: { label: string; hint?: (n: number) => s
           </g>
           <text x="2" y="50" fontSize="46" fill="none" stroke="currentColor" strokeWidth="1.2">P5</text>
         </svg>
-        <p className="loader-label">{label}</p>
-        {hint ? <p className="loader-hint">{hint(seconds)}</p> : null}
+        <p className="loader-label">{hint ? hint(seconds) : label}</p>
       </div>
     </div>
   );
