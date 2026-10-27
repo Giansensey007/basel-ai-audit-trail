@@ -1,15 +1,18 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import dossiersFile from "../tool/dossiers.json";
-import templatesFile from "../tool/templates.json";
+import schemaFile from "../tool/schema.json";
 import { linkEvents, verifyChain } from "./lib/chain";
 import { zurich } from "./lib/clock";
 import { downloads } from "./lib/docs";
-import type { DerivedField, Derivation, Dossier, DossiersFile, TemplatesFile } from "./lib/types";
+import type { Copy } from "./lib/i18n";
+import { useI18n } from "./lib/lang";
+import type { DerivedField, Derivation, Dossier, DossiersFile, SchemaFile } from "./lib/types";
 
 const dossiers = dossiersFile as DossiersFile;
-const templates = templatesFile as TemplatesFile;
-const steps = ["Eingang", "Extraktion", "Unsicherheit", "KI-Unterstützung", "Human Review", "Audit Trail", "Integrität", "Evaluation"];
+const schema = schemaFile as SchemaFile;
+const railIds = ["intake", "extract", "conflict", "ai", "review", "audit", "integrity", "evaluation"] as const;
+const tourKeys = ["docs", "fields", "decision", "audit"] as const;
 
 type ApiEvent = { seq: number; type: string; createdAt: string; prevHash: string; hash: string; canonical: string };
 type Reread = { match: boolean; fields: { id: string; match: boolean }[] };
@@ -20,13 +23,13 @@ type Payload = {
   error?: string;
 };
 
-function sittingTime(started: string | undefined, ended: string | undefined, now: number): string {
-  if (!started) return "noch keine Zeit";
+function sittingTime(started: string | undefined, ended: string | undefined, now: number, t: Copy): string {
+  if (!started) return t.noTime;
   const open = Math.max(0, Math.round((now - Date.parse(started)) / 1000));
-  if (!ended) return open > 30 * 60 ? "Sitzung liegt länger zurück. Neue Lesung starten." : `${open} Sekunden, läuft`;
+  if (!ended) return open > 30 * 60 ? t.earlier : t.running(open);
   const span = Math.max(0, Math.round((Date.parse(ended) - Date.parse(started)) / 1000));
-  if (span > 30 * 60) return "früher entschieden, nicht als Sitzungszeit gewertet";
-  return `${span} Sekunden bis zur Entscheidung. Kein Vergleichswert.`;
+  if (span > 30 * 60) return t.earlier;
+  return t.untilDecision(span);
 }
 
 function freshReading(dossierId: string, again: () => void) {
@@ -38,50 +41,121 @@ function dossierById(id: string): Dossier | undefined {
   return dossiers.dossiers.find((item) => item.id === id);
 }
 
-const eventName = (type: string) =>
-  ({ intake: "Eingang", extraction: "Extraktion", derivation: "Unsicherheit", decision: "Human Review", seal: "Integrität" })[type] ?? type;
+function caseTitle(id: string, t: Copy): string {
+  if (id === "abweichung") return t.caseMismatch;
+  if (id === "klar") return t.caseClean;
+  return id;
+}
+
+function fieldLabel(id: string, t: Copy): string {
+  return t.fields[id as keyof Copy["fields"]] ?? id;
+}
+
+function docTitle(id: string, fallback: string, t: Copy): string {
+  return t.docs[id as keyof Copy["docs"]] ?? fallback;
+}
 
 function readPayload(event: ApiEvent): Record<string, unknown> {
   return (JSON.parse(event.canonical) as { payload: Record<string, unknown> }).payload;
 }
 
+function findSegment(dossier: Dossier, id: string): { text: string; docId: string; docTitle: string } | null {
+  for (const doc of dossier.documents) {
+    const segment = doc.segments.find((item) => item.id === id);
+    if (segment) return { text: segment.text, docId: doc.id, docTitle: doc.title };
+  }
+  return null;
+}
+
+function valueGroups(field: DerivedField, dossier: Dossier): { value: string; ids: string[]; docs: string[] }[] {
+  const spec = schema.fields.find((item) => item.id === field.id);
+  const map = new Map<string, { ids: string[]; docs: string[] }>();
+  for (const id of field.segmentIds) {
+    const segment = findSegment(dossier, id);
+    if (!segment) continue;
+    const value = spec && segment.text.startsWith(spec.labelToken) ? segment.text.slice(spec.labelToken.length).trim() : segment.text;
+    const group = map.get(value) ?? { ids: [], docs: [] };
+    group.ids.push(id);
+    if (!group.docs.includes(segment.docId)) group.docs.push(segment.docId);
+    map.set(value, group);
+  }
+  return [...map.entries()].map(([value, group]) => ({ value, ids: group.ids, docs: group.docs }));
+}
+
+function clashDocs(field: DerivedField, dossier: Dossier, t: Copy): string {
+  return valueGroups(field, dossier)
+    .map((group) => `${group.docs.map((id) => docTitle(id, id, t)).join("/")}: ${group.value}`)
+    .join(` ${t.vs} `);
+}
+
+function clashIds(field: DerivedField, dossier: Dossier, t: Copy): string {
+  return valueGroups(field, dossier)
+    .map((group) => `${group.value} (${group.ids.join(", ")})`)
+    .join(` ${t.vs} `);
+}
+
+function proposalLines(derivation: Derivation, dossier: Dossier, t: Copy): string[] {
+  const lines: string[] = [];
+  const amount = new Set(["net", "vatRate", "gross"]);
+  for (const field of derivation.fields) {
+    if (field.status === "conflict") lines.push(`${fieldLabel(field.id, t)}: ${clashIds(field, dossier, t)}`);
+  }
+  if (derivation.vatCleared) lines.push(t.emptyAmounts);
+  for (const field of derivation.fields) {
+    if (field.status !== "missing") continue;
+    if (derivation.vatCleared && amount.has(field.id)) continue;
+    lines.push(`${fieldLabel(field.id, t)}: ${t.missing}`);
+  }
+  if (derivation.costCentreMissing) lines.push(t.costMissing);
+  return lines;
+}
+
 export function Shell({ children }: { children: ReactNode }) {
+  const { lang, setLang, t } = useI18n();
   return (
     <>
       <header className="topbar">
         <div className="topbar-inner">
-          <Link className="brand" to="/">Basel AI Audit Trail</Link>
+          <Link className="brand" to="/">{t.brand}</Link>
           <nav className="top-links">
-            <Link to="/">Dossiers</Link>
+            <Link to="/">{t.dossiers}</Link>
+            <div className="lang" role="group" aria-label="DE EN">
+              <button type="button" className={lang === "de" ? "is-on" : ""} onClick={() => setLang("de")}>DE</button>
+              <span aria-hidden="true">|</span>
+              <button type="button" className={lang === "en" ? "is-on" : ""} onClick={() => setLang("en")}>EN</button>
+            </div>
           </nav>
         </div>
       </header>
       <main className="wrap">{children}</main>
       <footer className="footer">
-        Pillar 5 GmbH, Basel. Technischer Partner Ritzi DeFi. Synthetische Daten. Kein gefördertes Ergebnis. Keine privaten Schlüssel auf dieser Seite.
-        {" "}
-        <Link to="/v/bruch">Beispiel einer gebrochenen Kette</Link>
+        {t.footer} <Link to="/v/bruch">{t.brokenLink}</Link>
       </footer>
     </>
   );
 }
 
 export function Chooser() {
+  const { t } = useI18n();
+  const ordered = [...dossiers.dossiers].sort((a, b) => Number(b.call) - Number(a.call));
   return (
     <Shell>
-      <h1>Basel AI Audit Trail</h1>
+      <h1>{t.headline}</h1>
       <div className="gold-rule" />
-      <p className="lede">Synthetische Lieferantenprüfung, keine echten Belege.</p>
+      <p className="lede">{t.synthetic}</p>
+      <ol className="steps">
+        {t.steps.map((step) => <li key={step}>{step}</li>)}
+      </ol>
       <div className="chooser-grid">
-        {[...dossiers.dossiers].sort((a, b) => Number(b.call) - Number(a.call)).map((dossier) => (
-          <Link key={dossier.id} to={`/fall/${dossier.id}`} className={dossier.call ? "dossier-card is-call" : "dossier-card"}>
-            <span className={dossier.call ? "flag" : "flag quiet"}>{dossier.call ? "Für das Gespräch" : "Kontrollfall"}</span>
-            <strong>{dossier.title}</strong>
-            <p>
-              {dossier.call
-                ? "Das Modell wählt einen Abschnitt, das Werkzeug liest ihn, eine Person gibt frei, dann gibt es einen Prüflink."
-                : dossier.blurb}
-            </p>
+        {ordered.map((dossier) => (
+          <Link
+            key={dossier.id}
+            to={dossier.call ? `/fall/${dossier.id}?tour=1` : `/fall/${dossier.id}`}
+            className={dossier.call ? "dossier-card is-call" : "dossier-card"}
+          >
+            <span className={dossier.call ? "flag" : "flag quiet"}>{dossier.call ? t.forCall : t.control}</span>
+            <strong>{caseTitle(dossier.id, t)}</strong>
+            {dossier.call ? <span className="btn" style={{ marginTop: 12 }}>{t.tourCta}</span> : null}
           </Link>
         ))}
       </div>
@@ -113,6 +187,8 @@ export function Loader({ label }: { label: string }) {
 
 export function Workspace() {
   const { dossierId = "" } = useParams();
+  const [params, setParams] = useSearchParams();
+  const { lang, t } = useI18n();
   const dossier = dossierById(dossierId);
   const [phase, setPhase] = useState<"loading" | "error" | "ready">("loading");
   const [error, setError] = useState("");
@@ -124,10 +200,15 @@ export function Workspace() {
   const [saving, setSaving] = useState(false);
   const [reread, setReread] = useState<Reread | null>(null);
   const [now, setNow] = useState(Date.now());
+  const [tourStep, setTourStep] = useState(0);
   const userPick = useRef(false);
+  const copyRef = useRef(t);
+  copyRef.current = t;
+  const touring = params.get("tour") === "1";
 
   useEffect(() => {
     if (!dossier) return;
+    const messages = copyRef.current;
     let cancelled = false;
     const keyName = `basel-key-${dossier.id}-${attempt}`;
     let key = sessionStorage.getItem(keyName);
@@ -146,10 +227,10 @@ export function Workspace() {
       const body = (await response.json()) as Payload & { status?: string; id?: string };
       if (cancelled) return;
       if (response.status === 202 || body.status === "reading") {
-        const ready = await poll(body.id || "");
+        const ready = await poll(body.id || "", messages.readFail);
         if (cancelled) return;
         if (!ready) {
-          setError("Die Lesung dauert zu lange.");
+          setError(messages.slow);
           setPhase("error");
           return;
         }
@@ -160,7 +241,7 @@ export function Workspace() {
       }
       if (!response.ok || !body.session) {
         sessionStorage.removeItem(keyName);
-        setError(body.error || body.session?.error || "Die Lesung ist fehlgeschlagen.");
+        setError(body.error || body.session?.error || messages.readFail);
         setPhase("error");
         return;
       }
@@ -170,7 +251,7 @@ export function Workspace() {
     };
     void load().catch((reason: unknown) => {
       if (cancelled) return;
-      setError(reason instanceof Error ? reason.message : "Die Lesung ist fehlgeschlagen.");
+      setError(reason instanceof Error ? reason.message : messages.readFail);
       setPhase("error");
     });
     return () => {
@@ -202,32 +283,44 @@ export function Workspace() {
     return () => window.clearInterval(timer);
   }, [derivationEvent, decisionEvent]);
 
+  useEffect(() => {
+    if (!touring) return;
+    const motion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    document.querySelector(`[data-tour="${tourKeys[tourStep]}"]`)?.scrollIntoView({ block: "nearest", behavior: motion ? "auto" : "smooth" });
+  }, [touring, tourStep, phase]);
+
+  function closeTour() {
+    const next = new URLSearchParams(params);
+    next.delete("tour");
+    setParams(next, { replace: true });
+  }
+
   if (!dossier) {
-    return <Shell><p>Dieses Dossier gibt es nicht.</p></Shell>;
+    return <Shell><p>{t.missingDossier}</p></Shell>;
   }
   if (phase === "loading") {
-    return <Shell><Loader label="Abschnitte werden gewählt" /></Shell>;
+    return <Shell><Loader label={t.loading} /></Shell>;
   }
   if (phase === "error" || !data || !derivation) {
     return (
       <Shell>
-        <h1>{dossier.title}</h1>
-        <p className="bad" role="alert">{error || "Die Lesung ist fehlgeschlagen."}</p>
-        <button className="btn" type="button" onClick={() => setAttempt((value) => value + 1)}>Erneut versuchen</button>
+        <h1>{caseTitle(dossier.id, t)}</h1>
+        <p className="bad" role="alert">{error || t.readFail}</p>
+        <button className="btn" type="button" onClick={() => setAttempt((value) => value + 1)}>{t.retry}</button>
       </Shell>
     );
   }
 
-  const done = new Set<string>(["Eingang", "Extraktion", "Unsicherheit", "KI-Unterstützung", "Audit Trail", "Evaluation"]);
-  if (decisionEvent) done.add("Human Review");
-  if (sealEvent) done.add("Integrität");
-  const active = steps.find((step) => !done.has(step)) ?? "Evaluation";
+  const done = new Set(["intake", "extract", "conflict", "ai", "audit", "evaluation"]);
+  if (decisionEvent) done.add("review");
+  if (sealEvent) done.add("integrity");
   const covered = derivation.fields.filter((field) => field.status === "filled" || (field.status === "conflict" && field.segmentIds.length >= 2)).length;
-  const efficiency = sittingTime(derivationEvent?.createdAt, decisionEvent?.createdAt, now);
+  const efficiency = sittingTime(derivationEvent?.createdAt, decisionEvent?.createdAt, now, t);
   const model = extractionEvent ? String(readPayload(extractionEvent).model ?? "") : "";
-  const rulesVersion = "2026-10-25";
   const sealText = sealEvent ? String(readPayload(sealEvent).pruefvermerk ?? "") : "";
   const verifyHref = sealEvent ? `/v/${data.session.id}#${sealEvent.hash}` : "";
+  const lines = proposalLines(derivation, dossier, t);
+  const activeTour = touring ? tourKeys[tourStep] : "";
 
   async function send(decision: "approve" | "reject") {
     if (!data) return;
@@ -239,7 +332,7 @@ export function Workspace() {
     });
     const body = (await response.json()) as Payload;
     if (body.session) setData(body);
-    else setError(body.error || "Die Entscheidung wurde nicht gespeichert.");
+    else setError(body.error || t.saveFail);
     setSaving(false);
   }
 
@@ -249,7 +342,7 @@ export function Workspace() {
     const response = await fetch(`/api/sessions/${data.session.id}/reread`, { method: "POST" });
     const body = (await response.json()) as Reread & { error?: string };
     if (response.ok && typeof body.match === "boolean") setReread(body);
-    else setError(body.error || "Die erneute Lesung ist fehlgeschlagen.");
+    else setError(body.error || t.rereadFail);
     setSaving(false);
   }
 
@@ -265,24 +358,31 @@ export function Workspace() {
 
   return (
     <Shell>
-      <p className="pitch">Problem: Nach einer KI-Hilfe fehlen oft die Quelle, der Widerspruch und die Person, die freigibt.</p>
-      <p className="pitch">Verantwortlich: Gian Seyitcan Senpinar, Pillar 5 GmbH, Basel. Kein Auftraggeber ist unterzeichnet.</p>
-      <p className="pitch">Lösung: Das Modell wählt einen Abschnitt. Das Werkzeug liest ihn. Eine Person gibt frei.</p>
-      <p className="pitch">Messung: Übereinstimmung mit der hinterlegten Referenzlesung. 30% und 90% bleiben Ziele für einen späteren unterzeichneten Piloten.</p>
-      <p className="method">Methode: rules.json. Das Modell kann ausgetauscht werden.</p>
-      <h1>{dossier.title}</h1>
+      {touring ? (
+        <div className="tour">
+          <strong>{t.tourProgress(tourStep + 1)}</strong>
+          <p>{t.tourLines[tourStep]}</p>
+          <div className="actions">
+            <button className="btn ghost" type="button" disabled={tourStep === 0} onClick={() => setTourStep((value) => value - 1)}>{t.back}</button>
+            <button className="btn" type="button" onClick={() => (tourStep === 3 ? closeTour() : setTourStep((value) => value + 1))}>{t.next}</button>
+            <button className="btn ghost" type="button" onClick={closeTour}>{t.skip}</button>
+          </div>
+        </div>
+      ) : null}
+      <h1>{caseTitle(dossier.id, t)}</h1>
       <div className="gold-rule" />
-      <ol className="rail" aria-label="Schritte">
-        {steps.map((step) => (
-          <li key={step} className={done.has(step) ? "is-done" : step === active ? "is-now" : ""}>{step}</li>
-        ))}
+      <ol className="rail" aria-label={t.steps[0]}>
+        {railIds.map((id, index) => {
+          const active = railIds.find((item) => !done.has(item));
+          return <li key={id} className={done.has(id) ? "is-done" : id === active ? "is-now" : ""}>{t.rail[index]}</li>;
+        })}
       </ol>
       <div className="workspace">
-        <section>
-          <p className="read-note">Das Werkzeug hat diesen Text hier gelesen. Abschnitt {selected || "noch keiner"}.</p>
+        <section data-tour="docs" data-tour-active={activeTour === "docs" ? "true" : undefined}>
+          <p className="read-note">{t.section} {selected || t.none}</p>
           {dossier.documents.map((doc) => (
             <article key={doc.id} className="doc">
-              <h2>{doc.title}</h2>
+              <h2>{docTitle(doc.id, doc.title, t)}</h2>
               {doc.segments.map((segment) => (
                 <div key={segment.id} id={`seg-${segment.id}`} className={segment.id === selected ? "segment is-on" : "segment"}>
                   <span className="sid">{segment.id}</span>
@@ -293,69 +393,77 @@ export function Workspace() {
           ))}
         </section>
         <section className="side">
-          {derivation.fields.map((field) => (
-            <FieldRow
-              key={field.id}
-              field={field}
-              dossier={dossier}
-              selected={selected}
-              onPick={(id) => {
-                userPick.current = true;
-                setSelected(id);
-              }}
-              vatCleared={derivation.vatCleared}
-            />
-          ))}
+          <div data-tour="fields" data-tour-active={activeTour === "fields" ? "true" : undefined}>
+            {derivation.fields.map((field) => (
+              <FieldRow
+                key={field.id}
+                field={field}
+                dossier={dossier}
+                selected={selected}
+                onPick={(id) => {
+                  userPick.current = true;
+                  setSelected(id);
+                }}
+                vatCleared={derivation.vatCleared}
+              />
+            ))}
+          </div>
           <div className="draft">
-            <h2>Entwurf des Werkzeugs</h2>
-            <p>{derivation.draftText}</p>
+            <h2>{t.proposal}: {derivation.recommendation === "hold" ? t.hold : t.book}</h2>
+            {lines.length ? (
+              <ul className="bullets">
+                {lines.map((line) => <li key={line}>{line}</li>)}
+              </ul>
+            ) : null}
           </div>
           {sealText ? (
-            <div className="vermerk">
-              <h2>Prüfvermerk</h2>
+            <div className="vermerk" data-tour="decision" data-tour-active={activeTour === "decision" ? "true" : undefined}>
+              <h2>{t.seal}</h2>
               <p>{sealText}</p>
-              <p><a href={verifyHref}>Prüflink öffnen</a></p>
+              <p><a href={verifyHref}>{t.openProof}</a></p>
             </div>
           ) : (
-            <form className="decision" onSubmit={(event) => event.preventDefault()}>
-              <label htmlFor="reviewer-name">Name</label>
+            <form className="decision" data-tour="decision" data-tour-active={activeTour === "decision" ? "true" : undefined} onSubmit={(event) => event.preventDefault()}>
+              <label htmlFor="reviewer-name">{t.name}</label>
               <input id="reviewer-name" value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" />
-              <label htmlFor="reviewer-comment">Kommentar</label>
+              <label htmlFor="reviewer-comment">{t.comment}</label>
               <textarea id="reviewer-comment" value={comment} onChange={(event) => setComment(event.target.value)} rows={3} />
-              <p className="claim">{templates.claimNote}</p>
+              <p className="claim">{t.claim}</p>
               <div className="actions">
-                <button className="btn" type="button" disabled={saving || name.trim().length < 1} onClick={() => void send("approve")}>Freigeben</button>
-                <button className="btn ghost" type="button" disabled={saving || name.trim().length < 1} onClick={() => void send("reject")}>Zurückhalten</button>
+                <button className="btn" type="button" disabled={saving || name.trim().length < 1} onClick={() => void send("approve")}>{t.approve}</button>
+                <button className="btn ghost" type="button" disabled={saving || name.trim().length < 1} onClick={() => void send("reject")}>{t.reject}</button>
               </div>
             </form>
           )}
         </section>
       </div>
       {error ? <p className="bad" role="alert">{error}</p> : null}
-      <section className="kpi" aria-label="KPI-Hypothesen, vor dem Pilot">
-        <h2>KPI-Hypothesen, vor dem Pilot</h2>
+      <section className="kpi" aria-label={t.kpiTitle}>
+        <h2>{t.kpiTitle}</h2>
         <div className="kpi-grid">
-          <div className="kpi-row">Effizienz: {efficiency}</div>
-          <div className="kpi-row">Nachvollziehbarkeit: {covered} von 8 Feldern mit geprüftem Abschnitt.</div>
-          <div className="kpi-row">Menschliche Kontrolle: {decisionEvent ? "ja" : "nein"}</div>
-          <div className="kpi-row">Auditierbarkeit: {data.events.length} von 5 Ereignissen, acht Schritte in der Leiste.</div>
-          <div className="kpi-row">Reproduzierbarkeit: {reread ? (reread.match ? "dieselbe Kennungsmenge" : "Abweichung zur gespeicherten Lesung") : "noch nicht erneut gelesen"}</div>
-          <div className="kpi-row">Wissenstransfer: 5 Dateien. Die Ziele 30% und 90% sind noch offen.</div>
-          <div className="kpi-row">Übereinstimmung mit der Referenzlesung: {data.agreement.hit} von {data.agreement.total}</div>
+          <div className="kpi-cell"><span>{t.time}</span>{efficiency}</div>
+          <div className="kpi-cell"><span>{t.cited}</span>{covered}/8</div>
+          <div className="kpi-cell"><span>{t.gold}</span>{data.agreement.hit}/{data.agreement.total}</div>
+          <div className="kpi-cell"><span>{t.signoff}</span>{decisionEvent ? t.yes : t.no}</div>
+          <div className="kpi-cell"><span>{t.chain}</span>{data.events.length}/5</div>
+          <div className="kpi-cell"><span>{t.targets}</span>{t.targetsValue}</div>
         </div>
         <div className="actions" style={{ marginTop: 12 }}>
-          <button className="btn ghost" type="button" disabled={saving} onClick={() => void again()}>Erneut lesen</button>
-          <button className="btn ghost" type="button" disabled={saving} onClick={() => freshReading(dossier.id, () => setAttempt((value) => value + 1))}>Neue Lesung</button>
+          <button className="btn ghost" type="button" disabled={saving} onClick={() => void again()}>{t.reread}{reread ? `: ${reread.match ? t.yes : t.no}` : ""}</button>
+          <button className="btn ghost" type="button" disabled={saving} onClick={() => freshReading(dossier.id, () => setAttempt((value) => value + 1))}>{t.fresh}</button>
         </div>
       </section>
-      <ol className="tape">
-        {data.events.map((event) => (
-          <li key={event.seq}>{eventName(event.type)} | {zurich(event.createdAt)} | {event.hash.slice(0, 12)}{event.type === "extraction" ? ` | ${model}, rules.json ${rulesVersion}` : ""}</li>
-        ))}
-      </ol>
+      <section data-tour="audit" data-tour-active={activeTour === "audit" ? "true" : undefined}>
+        <ol className="tape">
+          {data.events.map((event) => (
+            <li key={event.seq}>{t.events[event.type as keyof Copy["events"]] ?? event.type} | {zurich(event.createdAt)} | {event.hash.slice(0, 12)}{event.type === "extraction" ? ` | ${model}` : ""}</li>
+          ))}
+        </ol>
+        {verifyHref ? <p><a href={verifyHref}>{t.openProof}</a></p> : null}
+      </section>
       <section className="downloads">
-        <h2>Unterlagen</h2>
-        {downloads().map((file) => (
+        <h2>{t.files}</h2>
+        {downloads(lang, t).map((file) => (
           <a key={file.id} href={`#${file.id}`} onClick={(event) => { event.preventDefault(); saveFile(file.filename, file.body); }}>{file.title}</a>
         ))}
       </section>
@@ -376,46 +484,47 @@ function FieldRow({
   onPick: (id: string) => void;
   vatCleared: boolean;
 }) {
-  const texts = field.segmentIds.map((id) => findSegment(dossier, id)).filter(Boolean);
+  const { t } = useI18n();
+  const amount = field.id === "net" || field.id === "vatRate" || field.id === "gross";
   const warn = field.status === "conflict"
-    ? texts.join(" | ")
-    : field.status !== "filled"
-      ? vatCleared && (field.id === "net" || field.id === "vatRate" || field.id === "gross")
-        ? "Netto, MwSt und Brutto bleiben leer."
-        : "Beleg nicht im Dokument"
+    ? clashDocs(field, dossier, t)
+    : field.status !== "filled" && vatCleared && amount
+      ? t.emptyAmounts
       : "";
-  const primary = field.segmentIds[0] ?? "";
+  const badge = field.status === "filled" ? t.ok : field.status === "conflict" ? t.conflict : t.missing;
   return (
-    <button type="button" className={field.segmentIds.includes(selected) ? "field is-on" : "field"} onClick={() => primary && onPick(primary)}>
-      <span className="label">{field.label}</span>
-      <span className="value">{field.value ?? ""}</span>
-      <span className="meta">Gewählter Abschnitt: {field.segmentIds.join(", ") || "keiner"}</span>
+    <div className={field.segmentIds.includes(selected) ? "field is-on" : "field"}>
+      <div className="field-head">
+        <span className="label">{fieldLabel(field.id, t)}</span>
+        <span className={`badge ${field.status}`}>{badge}</span>
+      </div>
+      <div className="field-body">
+        <span className="value">{field.value ?? "-"}</span>
+        <span className="chips">
+          {field.segmentIds.map((id) => (
+            <button key={id} type="button" className={id === selected ? "chip is-on" : "chip"} onClick={() => onPick(id)}>{id}</button>
+          ))}
+        </span>
+      </div>
       {warn ? <span className="warn">{warn}</span> : null}
-    </button>
+    </div>
   );
 }
 
-function findSegment(dossier: Dossier, id: string): string {
-  for (const doc of dossier.documents) {
-    const segment = doc.segments.find((item) => item.id === id);
-    if (segment) return segment.text;
-  }
-  return "";
-}
-
-async function poll(id: string): Promise<Payload | null> {
+async function poll(id: string, fail: string): Promise<Payload | null> {
   for (let attempt = 0; attempt < 50; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 1000));
     const response = await fetch(`/api/sessions/${id}`);
     const body = (await response.json()) as Payload;
     if (body.session?.status === "ready") return body;
-    if (body.session?.status === "error") throw new Error(body.session.error || "Die Lesung ist fehlgeschlagen.");
+    if (body.session?.status === "error") throw new Error(body.session.error || fail);
   }
   return null;
 }
 
 export function Verify() {
   const { sessionId = "" } = useParams();
+  const { t } = useI18n();
   const [state, setState] = useState<"wait" | "green" | "red">("wait");
   const [detail, setDetail] = useState("");
 
@@ -427,7 +536,7 @@ export function Verify() {
       if (!body.events) {
         if (!cancelled) {
           setState("red");
-          setDetail("Die Sitzung fehlt.");
+          setDetail(t.sessionMissing);
         }
         return;
       }
@@ -444,25 +553,26 @@ export function Verify() {
       const fragmentOk = !fragment || fragment === seal?.hash;
       if (cancelled) return;
       setState(checked.ok && fragmentOk ? "green" : "red");
-      setDetail(checked.ok && fragmentOk ? "Der Link passt zur Kette." : "Der Link passt nicht mehr zur Kette.");
+      setDetail(checked.ok && fragmentOk ? t.linkOk : t.linkBad);
     };
     void run();
     return () => {
       cancelled = true;
     };
-  }, [sessionId]);
+  }, [sessionId, t.linkBad, t.linkOk, t.sessionMissing]);
 
   return (
     <Shell>
-      <h1>Integrität</h1>
+      <h1>{t.integrity}</h1>
       <div className="gold-rule" />
-      {state === "wait" ? <Loader label="Kette wird geprüft" /> : <p className={state === "green" ? "ok" : "bad"}>{detail}</p>}
-      <p className="claim">Das zeigt, dass der kopierte Link noch zum Protokoll passt. Es ist kein externer Zeitstempel.</p>
+      {state === "wait" ? <Loader label={t.checking} /> : <p className={state === "green" ? "ok" : "bad"}>{detail}</p>}
+      <p className="claim">{t.noStamp}</p>
     </Shell>
   );
 }
 
 export function BrokenChain() {
+  const { t } = useI18n();
   const [state, setState] = useState<"wait" | "red" | "green">("wait");
   useEffect(() => {
     void linkEvents("bruch", new Date("2026-10-25T12:00:00.000Z"), [
@@ -477,9 +587,9 @@ export function BrokenChain() {
   }, []);
   return (
     <Shell>
-      <h1>Gebrochene Kette</h1>
+      <h1>{t.brokenTitle}</h1>
       <div className="gold-rule" />
-      {state === "wait" ? <p>Prüfung läuft.</p> : <p className={state === "red" ? "bad" : "ok"}>{state === "red" ? "Die Beispielkette ist gebrochen." : "Unerwartet intakt."}</p>}
+      {state === "wait" ? <p>{t.brokenWait}</p> : <p className={state === "red" ? "bad" : "ok"}>{state === "red" ? t.brokenRed : t.brokenGreen}</p>}
     </Shell>
   );
 }
