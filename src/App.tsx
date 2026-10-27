@@ -1,5 +1,5 @@
 import { Route, Routes } from "react-router-dom";
-import { BrokenChain, Chooser, Verify, Workspace } from "./screens";
+import { BrokenChain, Chooser, NotFound, Verify, Workspace } from "./screens";
 
 export function App() {
   return (
@@ -8,6 +8,7 @@ export function App() {
       <Route path="/fall/:dossierId" element={<Workspace />} />
       <Route path="/v/bruch" element={<BrokenChain />} />
       <Route path="/v/:sessionId" element={<Verify />} />
+      <Route path="*" element={<NotFound />} />
     </Routes>
   );
 }

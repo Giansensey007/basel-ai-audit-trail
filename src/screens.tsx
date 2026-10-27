@@ -171,8 +171,14 @@ export function Chooser() {
   );
 }
 
-export function Loader({ label }: { label: string }) {
+export function Loader({ label, hint }: { label: string; hint?: (n: number) => string }) {
   const raw = useId().replace(/:/g, "");
+  const [seconds, setSeconds] = useState(0);
+  useEffect(() => {
+    if (!hint) return;
+    const timer = window.setInterval(() => setSeconds((value) => value + 1), 1000);
+    return () => window.clearInterval(timer);
+  }, [hint]);
   return (
     <div className="loader-screen" role="status" aria-live="polite">
       <div>
@@ -188,6 +194,7 @@ export function Loader({ label }: { label: string }) {
           <text x="2" y="50" fontSize="46" fill="none" stroke="currentColor" strokeWidth="1.2">P5</text>
         </svg>
         <p className="loader-label">{label}</p>
+        {hint ? <p className="loader-hint">{hint(seconds)}</p> : null}
       </div>
     </div>
   );
@@ -211,6 +218,7 @@ export function Workspace() {
   const [tourStep, setTourStep] = useState(0);
   const [tourDone, setTourDone] = useState(false);
   const userPick = useRef(false);
+  const sending = useRef(false);
   const copyRef = useRef(t);
   copyRef.current = t;
   const touring = params.get("tour") === "1";
@@ -312,10 +320,16 @@ export function Workspace() {
   }
 
   if (!dossier) {
-    return <Shell><p>{t.missingDossier}</p></Shell>;
+    return (
+      <Shell>
+        <h1>{t.notFound}</h1>
+        <div className="gold-rule" />
+        <p><Link to="/">{t.toCases}</Link></p>
+      </Shell>
+    );
   }
   if (phase === "loading") {
-    return <Shell><Loader label={t.loading} /></Shell>;
+    return <Shell><Loader label={t.loading} hint={t.loadingHint} /></Shell>;
   }
   if (phase === "error" || !data || !derivation) {
     return (
@@ -338,11 +352,16 @@ export function Workspace() {
   const lines = proposalLines(derivation, dossier, t);
   const activeTour = touring ? tourKeys[tourStep] : "";
   const verdict = decisionEvent
-    ? (readPayload(decisionEvent).decision === "reject" ? t.held : t.approved)
+    ? readPayload(decisionEvent).decision === "reject"
+      ? t.held
+      : derivation.recommendation === "hold"
+        ? t.holdConfirmed
+        : t.approved
     : "";
 
   async function send(decision: "approve" | "reject") {
-    if (!data) return;
+    if (!data || sending.current) return;
+    sending.current = true;
     setSaving(true);
     const response = await fetch(`/api/sessions/${data.session.id}/decision`, {
       method: "POST",
@@ -353,6 +372,7 @@ export function Workspace() {
     if (body.session) setData(body);
     else setError(body.error || t.saveFail);
     setSaving(false);
+    sending.current = false;
   }
 
   async function again() {
@@ -607,6 +627,17 @@ export function Verify() {
       )}
       <p className="claim">{t.noStamp}</p>
       {sealed ? <p><Link to={`/fall/${sealed.dossierId}`}>{t.backToCase}</Link></p> : null}
+    </Shell>
+  );
+}
+
+export function NotFound() {
+  const { t } = useI18n();
+  return (
+    <Shell>
+      <h1>{t.notFound}</h1>
+      <div className="gold-rule" />
+      <p><Link to="/">{t.toCases}</Link></p>
     </Shell>
   );
 }
