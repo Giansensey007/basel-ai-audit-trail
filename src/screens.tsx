@@ -138,27 +138,35 @@ export function Shell({ children }: { children: ReactNode }) {
 export function Chooser() {
   const { t } = useI18n();
   const ordered = [...dossiers.dossiers].sort((a, b) => Number(b.call) - Number(a.call));
+  const first = ordered[0];
   return (
     <Shell>
       <h1>{t.headline}</h1>
       <div className="gold-rule" />
-      <p className="lede">{t.synthetic}</p>
-      <ol className="steps">
-        {t.steps.map((step) => <li key={step}>{step}</li>)}
-      </ol>
+      <p className="lede">{t.lede}</p>
+      <div className="how">
+        <strong>{t.howTitle}</strong>
+        <ol className="steps">
+          {t.steps.map((step) => <li key={step}>{step}</li>)}
+        </ol>
+        <div className="actions">
+          <Link className="btn" to={`/fall/${first.id}?tour=1`}>{t.tourCta}</Link>
+        </div>
+      </div>
       <div className="chooser-grid">
         {ordered.map((dossier) => (
           <Link
             key={dossier.id}
-            to={dossier.call ? `/fall/${dossier.id}?tour=1` : `/fall/${dossier.id}`}
+            to={`/fall/${dossier.id}`}
             className={dossier.call ? "dossier-card is-call" : "dossier-card"}
           >
             <span className={dossier.call ? "flag" : "flag quiet"}>{dossier.call ? t.forCall : t.control}</span>
             <strong>{caseTitle(dossier.id, t)}</strong>
-            {dossier.call ? <span className="btn" style={{ marginTop: 12 }}>{t.tourCta}</span> : null}
+            <span className="card-note">{dossier.call ? t.caseMismatchNote : t.caseCleanNote}</span>
           </Link>
         ))}
       </div>
+      <p className="claim">{t.synthetic}</p>
     </Shell>
   );
 }
@@ -201,6 +209,7 @@ export function Workspace() {
   const [reread, setReread] = useState<Reread | null>(null);
   const [now, setNow] = useState(Date.now());
   const [tourStep, setTourStep] = useState(0);
+  const [tourDone, setTourDone] = useState(false);
   const userPick = useRef(false);
   const copyRef = useRef(t);
   copyRef.current = t;
@@ -286,13 +295,20 @@ export function Workspace() {
   useEffect(() => {
     if (!touring) return;
     const motion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    document.querySelector(`[data-tour="${tourKeys[tourStep]}"]`)?.scrollIntoView({ block: "nearest", behavior: motion ? "auto" : "smooth" });
+    const target = document.querySelector<HTMLElement>(`[data-tour="${tourKeys[tourStep]}"]`);
+    if (!target) return;
+    const tall = target.getBoundingClientRect().height > window.innerHeight * 0.7;
+    target.scrollIntoView({ block: tall ? "start" : "center", behavior: motion ? "auto" : "smooth" });
   }, [touring, tourStep, phase]);
 
   function closeTour() {
     const next = new URLSearchParams(params);
     next.delete("tour");
     setParams(next, { replace: true });
+    if (touring) {
+      setTourDone(true);
+      window.scrollTo({ top: 0, behavior: "auto" });
+    }
   }
 
   if (!dossier) {
@@ -321,6 +337,9 @@ export function Workspace() {
   const verifyHref = sealEvent ? `/v/${data.session.id}#${sealEvent.hash}` : "";
   const lines = proposalLines(derivation, dossier, t);
   const activeTour = touring ? tourKeys[tourStep] : "";
+  const verdict = decisionEvent
+    ? (readPayload(decisionEvent).decision === "reject" ? t.held : t.approved)
+    : "";
 
   async function send(decision: "approve" | "reject") {
     if (!data) return;
@@ -361,10 +380,10 @@ export function Workspace() {
       {touring ? (
         <div className="tour">
           <strong>{t.tourProgress(tourStep + 1)}</strong>
-          <p>{t.tourLines[tourStep]}</p>
+          <p>{(decisionEvent ? t.tourLinesSealed : t.tourLines)[tourStep]}</p>
           <div className="actions">
             <button className="btn ghost" type="button" disabled={tourStep === 0} onClick={() => setTourStep((value) => value - 1)}>{t.back}</button>
-            <button className="btn" type="button" onClick={() => (tourStep === 3 ? closeTour() : setTourStep((value) => value + 1))}>{t.next}</button>
+            <button className="btn" type="button" onClick={() => (tourStep === 3 ? closeTour() : setTourStep((value) => value + 1))}>{tourStep === 3 ? t.tourDone : t.next}</button>
             <button className="btn ghost" type="button" onClick={closeTour}>{t.skip}</button>
           </div>
         </div>
@@ -377,9 +396,10 @@ export function Workspace() {
           return <li key={id} className={done.has(id) ? "is-done" : id === active ? "is-now" : ""}>{t.rail[index]}</li>;
         })}
       </ol>
+      {tourDone ? <p className="tour-done" role="status">{t.tourDoneNote}</p> : null}
       <div className="workspace">
         <section data-tour="docs" data-tour-active={activeTour === "docs" ? "true" : undefined}>
-          <p className="read-note">{t.section} {selected || t.none}</p>
+          <p className="step-note"><span>1</span>{t.stepNames[0]}</p>
           {dossier.documents.map((doc) => (
             <article key={doc.id} className="doc">
               <h2>{docTitle(doc.id, doc.title, t)}</h2>
@@ -394,6 +414,7 @@ export function Workspace() {
         </section>
         <section className="side">
           <div data-tour="fields" data-tour-active={activeTour === "fields" ? "true" : undefined}>
+            <p className="step-note"><span>2</span>{t.stepNames[1]}</p>
             {derivation.fields.map((field) => (
               <FieldRow
                 key={field.id}
@@ -418,14 +439,16 @@ export function Workspace() {
           </div>
           {sealText ? (
             <div className="vermerk" data-tour="decision" data-tour-active={activeTour === "decision" ? "true" : undefined}>
-              <h2>{t.seal}</h2>
-              <p>{sealText}</p>
+              <p className="step-note"><span>3</span>{t.stepNames[2]}</p>
+              <h2>{verdict}</h2>
+              <p className="claim">{t.storedWording}: <span className="quote">{sealText}</span></p>
               <p><a href={verifyHref}>{t.openProof}</a></p>
             </div>
           ) : (
             <form className="decision" data-tour="decision" data-tour-active={activeTour === "decision" ? "true" : undefined} onSubmit={(event) => event.preventDefault()}>
+              <p className="step-note"><span>3</span>{t.stepNames[2]}</p>
               <label htmlFor="reviewer-name">{t.name}</label>
-              <input id="reviewer-name" value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" />
+              <input id="reviewer-name" value={name} placeholder={t.decideHint} onChange={(event) => setName(event.target.value)} autoComplete="name" />
               <label htmlFor="reviewer-comment">{t.comment}</label>
               <textarea id="reviewer-comment" value={comment} onChange={(event) => setComment(event.target.value)} rows={3} />
               <p className="claim">{t.claim}</p>
@@ -443,10 +466,7 @@ export function Workspace() {
         <div className="kpi-grid">
           <div className="kpi-cell"><span>{t.time}</span>{efficiency}</div>
           <div className="kpi-cell"><span>{t.cited}</span>{covered}/8</div>
-          <div className="kpi-cell"><span>{t.gold}</span>{data.agreement.hit}/{data.agreement.total}</div>
-          <div className="kpi-cell"><span>{t.signoff}</span>{decisionEvent ? t.yes : t.no}</div>
-          <div className="kpi-cell"><span>{t.chain}</span>{data.events.length}/5</div>
-          <div className="kpi-cell"><span>{t.targets}</span>{t.targetsValue}</div>
+          <div className="kpi-cell"><span>{t.decision}</span>{verdict || t.none_decided}</div>
         </div>
         <div className="actions" style={{ marginTop: 12 }}>
           <button className="btn ghost" type="button" disabled={saving} onClick={() => void again()}>{t.reread}{reread ? `: ${reread.match ? t.yes : t.no}` : ""}</button>
@@ -454,12 +474,12 @@ export function Workspace() {
         </div>
       </section>
       <section data-tour="audit" data-tour-active={activeTour === "audit" ? "true" : undefined}>
+        <p className="step-note"><span>4</span>{t.stepNames[3]}</p>
         <ol className="tape">
           {data.events.map((event) => (
             <li key={event.seq}>{t.events[event.type as keyof Copy["events"]] ?? event.type} | {zurich(event.createdAt)} | {event.hash.slice(0, 12)}{event.type === "extraction" ? ` | ${model}` : ""}</li>
           ))}
         </ol>
-        {verifyHref ? <p><a href={verifyHref}>{t.openProof}</a></p> : null}
       </section>
       <section className="downloads">
         <h2>{t.files}</h2>
@@ -527,6 +547,7 @@ export function Verify() {
   const { t } = useI18n();
   const [state, setState] = useState<"wait" | "green" | "red">("wait");
   const [detail, setDetail] = useState("");
+  const [sealed, setSealed] = useState<{ dossierId: string; dossier: string; when: string; decision: string } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -552,6 +573,13 @@ export function Verify() {
       const fragment = window.location.hash.replace("#", "");
       const fragmentOk = !fragment || fragment === seal?.hash;
       if (cancelled) return;
+      const payload = seal ? readPayload(seal) : {};
+      setSealed({
+        dossierId: body.session.dossierId,
+        dossier: caseTitle(body.session.dossierId, t),
+        when: seal ? zurich(seal.createdAt) : "-",
+        decision: payload.decision === "reject" ? t.held : t.approved,
+      });
       setState(checked.ok && fragmentOk ? "green" : "red");
       setDetail(checked.ok && fragmentOk ? t.linkOk : t.linkBad);
     };
@@ -559,14 +587,26 @@ export function Verify() {
     return () => {
       cancelled = true;
     };
-  }, [sessionId, t.linkBad, t.linkOk, t.sessionMissing]);
+  }, [sessionId, t.linkBad, t.linkOk, t.sessionMissing, t.held, t.approved]);
 
   return (
     <Shell>
       <h1>{t.integrity}</h1>
       <div className="gold-rule" />
-      {state === "wait" ? <Loader label={t.checking} /> : <p className={state === "green" ? "ok" : "bad"}>{detail}</p>}
+      {state === "wait" ? <Loader label={t.checking} /> : (
+        <>
+          <p className={state === "green" ? "ok" : "bad"}>{detail}</p>
+          {sealed && state === "green" ? (
+            <div className="kpi-grid">
+              <div className="kpi-cell"><span>{t.caseLabel}</span>{sealed.dossier}</div>
+              <div className="kpi-cell"><span>{t.decision}</span>{sealed.decision}</div>
+              <div className="kpi-cell"><span>{t.time}</span>{sealed.when}</div>
+            </div>
+          ) : null}
+        </>
+      )}
       <p className="claim">{t.noStamp}</p>
+      {sealed ? <p><Link to={`/fall/${sealed.dossierId}`}>{t.backToCase}</Link></p> : null}
     </Shell>
   );
 }
