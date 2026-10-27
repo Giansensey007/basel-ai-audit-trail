@@ -193,8 +193,11 @@ h1 {
 .downloads a, .tape li { border-bottom: 1px solid #ddd; padding: 6px 0; }
 .downloads a { display: flex; align-items: center; min-height: 44px; }
 .footer a { display: inline-flex; align-items: center; min-height: 44px; }
-.downloads a { display: block; }
+.kpi-cell small { display: block; margin-top: 4px; font-size: 0.75rem; line-height: 1.35; color: var(--muted); }
+.kpi-cell code { font-size: 0.85rem; word-break: break-all; }
 .tape { list-style: none; padding: 0; margin: 0; }
+.tape li.is-bad { color: var(--hold); font-weight: 600; }
+.resource { white-space: pre-wrap; font-family: var(--sans, inherit); font-size: 1rem; line-height: 1.5; border: 1px solid var(--line); padding: 12px; margin: 0 0 16px; }
 .wrap p a, .claim a { display: inline-flex; align-items: center; min-height: 44px; }
 .vermerk a, .draft a { display: inline-flex; align-items: center; min-height: 44px; }
 .ok { color: var(--ok); font-weight: 600; }

@@ -1,9 +1,10 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useParams, useSearchParams } from "react-router-dom";
 import dossiersFile from "../tool/dossiers.json";
 import schemaFile from "../tool/schema.json";
 import { linkEvents, verifyChain } from "./lib/chain";
 import { zurich } from "./lib/clock";
+import { hashEvent } from "./lib/hash";
 import { downloads } from "./lib/docs";
 import type { Copy } from "./lib/i18n";
 import { useI18n } from "./lib/lang";
@@ -384,16 +385,6 @@ export function Workspace() {
     setSaving(false);
   }
 
-  function saveFile(filename: string, body: string) {
-    const blob = new Blob([body], { type: "text/markdown;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = filename;
-    link.click();
-    URL.revokeObjectURL(url);
-  }
-
   return (
     <Shell>
       {touring ? (
@@ -483,9 +474,10 @@ export function Workspace() {
       <section className="kpi" aria-label={t.kpiTitle}>
         <h2>{t.kpiTitle}</h2>
         <div className="kpi-grid">
-          <div className="kpi-cell"><span>{t.time}</span>{efficiency}</div>
-          <div className="kpi-cell"><span>{t.cited}</span>{covered}/8</div>
-          <div className="kpi-cell"><span>{t.decision}</span>{verdict || t.none_decided}</div>
+          <div className="kpi-cell"><span>{t.time}</span>{efficiency}<small>{t.defTime}</small></div>
+          <div className="kpi-cell"><span>{t.cited}</span>{covered}/8<small>{t.defCited}</small></div>
+          <div className="kpi-cell"><span>{t.decision}</span>{verdict || t.none_decided}<small>{t.defDecision}</small></div>
+          <div className="kpi-cell"><span>{t.targets}</span>{t.targetsValue}<small>{t.defTargets}</small></div>
         </div>
         <div className="actions" style={{ marginTop: 12 }}>
           <button className="btn ghost" type="button" disabled={saving} onClick={() => void again()}>{t.reread}{reread ? `: ${reread.match ? t.yes : t.no}` : ""}</button>
@@ -503,7 +495,7 @@ export function Workspace() {
       <section className="downloads">
         <h2>{t.files}</h2>
         {downloads(lang, t).map((file) => (
-          <a key={file.id} href={`#${file.id}`} onClick={(event) => { event.preventDefault(); saveFile(file.filename, file.body); }}>{file.title}</a>
+          <Link key={file.id} to={`/unterlagen/${file.id}`} state={{ from: `/fall/${dossier.id}` }}>{file.title}</Link>
         ))}
       </section>
     </Shell>
@@ -567,6 +559,13 @@ export function Verify() {
   const [state, setState] = useState<"wait" | "green" | "red">("wait");
   const [detail, setDetail] = useState("");
   const [sealed, setSealed] = useState<{ dossierId: string; dossier: string; when: string; decision: string } | null>(null);
+  const [fragmentKey, setFragmentKey] = useState(() => window.location.hash);
+
+  useEffect(() => {
+    const onHash = () => setFragmentKey(window.location.hash);
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -589,24 +588,30 @@ export function Verify() {
         canonical: event.canonical,
       })));
       const seal = [...body.events].reverse().find((event) => event.type === "seal");
+      const derivationEvent = body.events.find((event) => event.type === "derivation");
       const fragment = window.location.hash.replace("#", "");
       const fragmentOk = !fragment || fragment === seal?.hash;
       if (cancelled) return;
       const payload = seal ? readPayload(seal) : {};
+      const recommendation = derivationEvent ? readPayload(derivationEvent).recommendation : "";
       setSealed({
         dossierId: body.session.dossierId,
         dossier: caseTitle(body.session.dossierId, t),
         when: seal ? zurich(seal.createdAt) : "-",
-        decision: payload.decision === "reject" ? t.held : t.approved,
+        decision: payload.decision === "reject" ? t.held : recommendation === "hold" ? t.holdConfirmed : t.approved,
       });
       setState(checked.ok && fragmentOk ? "green" : "red");
-      setDetail(checked.ok && fragmentOk ? t.linkOk : t.linkBad);
+      if (checked.ok && fragmentOk) setDetail(t.linkOk);
+      else if (!checked.ok && checked.firstBad !== null) {
+        const bad = body.events.find((event) => event.seq === checked.firstBad);
+        setDetail(`${t.linkBad} ${t.brokenAt(checked.firstBad, bad ? t.events[bad.type as keyof Copy["events"]] ?? bad.type : "?")}`);
+      } else setDetail(`${t.linkBad} ${t.fragmentMismatch}`);
     };
     void run();
     return () => {
       cancelled = true;
     };
-  }, [sessionId, t.linkBad, t.linkOk, t.sessionMissing, t.held, t.approved]);
+  }, [sessionId, t, fragmentKey]);
 
   return (
     <Shell>
@@ -625,7 +630,7 @@ export function Verify() {
         </>
       )}
       <p className="claim">{t.noStamp}</p>
-      {sealed ? <p><Link to={`/fall/${sealed.dossierId}`}>{t.backToCase}</Link></p> : null}
+      {sealed ? <p><Link to={`/fall/${sealed.dossierId}`}>{t.backToCase}</Link></p> : state === "red" ? <p><Link to="/">{t.toCases}</Link></p> : null}
     </Shell>
   );
 }
@@ -641,25 +646,89 @@ export function NotFound() {
   );
 }
 
+type BrokenDemo = {
+  originalOk: boolean;
+  firstBad: number | null;
+  stored: string;
+  recomputed: string;
+  types: string[];
+};
+
 export function BrokenChain() {
   const { t } = useI18n();
-  const [state, setState] = useState<"wait" | "red" | "green">("wait");
+  const [demo, setDemo] = useState<BrokenDemo | null>(null);
   useEffect(() => {
     void linkEvents("bruch", new Date("2026-10-25T12:00:00.000Z"), [
-      { type: "intake", payload: { dossierId: "klar" } },
-      { type: "seal", payload: { note: "beispiel" } },
+      { type: "intake", payload: { dossierId: "abweichung" } },
+      { type: "extraction", payload: { model: "beispiel" } },
+      { type: "derivation", payload: { recommendation: "hold" } },
+      { type: "decision", payload: { decision: "reject", reviewerClaim: "Beispiel" } },
+      { type: "seal", payload: { decision: "reject", reviewerClaim: "Beispiel" } },
     ]).then(async (events) => {
-      const broken = events.map((event) => ({ ...event }));
-      broken[0] = { ...broken[0], hash: "f".repeat(64) };
-      const checked = await verifyChain(broken);
-      setState(checked.ok ? "green" : "red");
+      const original = await verifyChain(events);
+      const tampered = events.map((event) => ({ ...event }));
+      const target = tampered[3];
+      const parsed = JSON.parse(target.canonical) as { payload: Record<string, unknown> };
+      const payload = { ...parsed.payload, decision: "approve" };
+      const again = await hashEvent({ sessionId: "bruch", seq: target.seq, type: target.type, createdAt: target.createdAt, prevHash: target.prevHash, payload });
+      tampered[3] = { ...target, canonical: again.canonical };
+      const checked = await verifyChain(tampered);
+      setDemo({
+        originalOk: original.ok,
+        firstBad: checked.firstBad,
+        stored: target.hash,
+        recomputed: again.hash,
+        types: events.map((event) => event.type),
+      });
     });
   }, []);
+  const eventName = (type: string) => t.events[type as keyof Copy["events"]] ?? type;
   return (
     <Shell>
       <h1>{t.brokenTitle}</h1>
       <div className="gold-rule" />
-      {state === "wait" ? <p>{t.brokenWait}</p> : <p className={state === "red" ? "bad" : "ok"}>{state === "red" ? t.brokenRed : t.brokenGreen}</p>}
+      {!demo ? <p>{t.brokenWait}</p> : (
+        <>
+          <p className={demo.firstBad === null ? "ok" : "bad"}>{demo.firstBad === null ? t.brokenGreen : `${t.brokenRed} ${t.brokenAt(demo.firstBad, eventName(demo.types[demo.firstBad - 1] ?? ""))}`}</p>
+          <p>{t.brokenIntro}</p>
+          <p><strong>{t.brokenTampered}:</strong> {t.brokenChange}</p>
+          <ol className="tape">
+            {demo.types.map((type, index) => {
+              const seq = index + 1;
+              const status = demo.firstBad === null || seq < demo.firstBad ? t.eventOk : seq === demo.firstBad ? t.eventBroken : t.eventUnchecked;
+              return <li key={type} className={seq === demo.firstBad ? "is-bad" : ""}>{seq}. {eventName(type)} | {status}</li>;
+            })}
+          </ol>
+          <div className="kpi-grid">
+            <div className="kpi-cell"><span>{t.brokenStored}</span><code>{demo.stored.slice(0, 16)}</code></div>
+            <div className="kpi-cell"><span>{t.brokenRecomputed}</span><code>{demo.recomputed.slice(0, 16)}</code></div>
+          </div>
+          <p>{t.brokenWhy}</p>
+          <p className={demo.originalOk ? "ok" : "bad"}>{t.brokenOriginal}: {demo.originalOk ? t.brokenGreen : t.brokenRed}</p>
+          <p className="claim">{t.brokenMeaning}</p>
+        </>
+      )}
+      <p><Link to="/">{t.toCases}</Link></p>
+    </Shell>
+  );
+}
+
+export function Resource() {
+  const { fileId = "" } = useParams();
+  const { t, lang } = useI18n();
+  const location = useLocation();
+  const from = (location.state as { from?: string } | null)?.from ?? "/";
+  const file = downloads(lang, t).find((item) => item.id === fileId);
+  if (!file) return <NotFound />;
+  return (
+    <Shell>
+      <h1>{file.title}</h1>
+      <div className="gold-rule" />
+      <pre className="resource">{file.body.replace(/^# .*\n+/, "")}</pre>
+      <div className="actions">
+        <a className="btn" href={`data:text/markdown;charset=utf-8,${encodeURIComponent(file.body)}`} download={file.filename}>{t.download}</a>
+        <Link className="btn ghost" to={from}>{t.back}</Link>
+      </div>
     </Shell>
   );
 }
